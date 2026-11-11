@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+dotenv.config();
+
 import type {
   User,
   UserRole,
@@ -21,7 +24,7 @@ import type {
   TransactionType,
   InvestigationStatus,
 } from './types.ts';
-import { hashPassword } from './auth.ts';
+import { hashPassword, verifyPassword } from './auth.ts';
 import { generateSyntheticTransactions } from './seed.ts';
 import { analyzeTransaction, DEFAULT_FRAUD_CONFIG } from './fraudEngine.ts';
 
@@ -29,6 +32,40 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'finguard_db.json');
+
+/**
+ * Returns the configured system demo accounts, honoring Render environment variables
+ * with clean sanitization (stripping surrounding quotes and whitespace).
+ */
+export function getConfiguredCredentials() {
+  const adminPassword = (process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@FinGuard2026').trim().replace(/^["']|["']$/g, '');
+  const analystPassword = (process.env.DEFAULT_ANALYST_PASSWORD || 'FinGuard@2026').trim().replace(/^["']|["']$/g, '');
+  const userPassword = (process.env.DEFAULT_USER_PASSWORD || 'User@FinGuard2026').trim().replace(/^["']|["']$/g, '');
+
+  return {
+    admin: {
+      id: 'USR100',
+      fullName: 'Chief Compliance Administrator',
+      email: 'admin@finguard.bank',
+      password: adminPassword,
+      role: 'admin' as const,
+    },
+    analyst: {
+      id: 'USR101',
+      fullName: 'Senior Fraud Analyst',
+      email: 'analyst@finguard.bank',
+      password: analystPassword,
+      role: 'analyst' as const,
+    },
+    user: {
+      id: 'USR102',
+      fullName: 'Auditor & Compliance Staff',
+      email: 'user@finguard.bank',
+      password: userPassword,
+      role: 'user' as const,
+    },
+  };
+}
 
 export interface DatabaseState {
   users: User[];
@@ -79,7 +116,17 @@ class DatabaseManager {
       try {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         this.state = JSON.parse(raw);
-        console.log(`[Database] Loaded ${this.state.transactions.length} transactions from disk.`);
+        console.log(`[Database] Loaded ${this.state.transactions?.length || 0} transactions from disk.`);
+        if (!Array.isArray(this.state.users)) {
+          this.state.users = [];
+        }
+        if (!Array.isArray(this.state.transactions)) {
+          this.state.transactions = [];
+        }
+
+        // Always synchronize system accounts to reflect any Render environment variables without wiping user-registered accounts!
+        this.syncSystemAccounts();
+
         if (this.state.transactions.length === 0) {
           this.seedInitialData();
         }
@@ -100,45 +147,90 @@ class DatabaseManager {
     }
   }
 
+  /**
+   * Synchronizes system administrator, analyst, and standard user accounts
+   * with the active environment variables (e.g. from Render dashboard)
+   * while strictly preserving all other user accounts.
+   */
+  public syncSystemAccounts() {
+    const creds = getConfiguredCredentials();
+    if (!Array.isArray(this.state.users)) {
+      this.state.users = [];
+    }
+
+    // 1. Admin account
+    let admin = this.state.users.find((u) => u.email.toLowerCase() === creds.admin.email.toLowerCase());
+    if (!admin) {
+      admin = {
+        id: creds.admin.id,
+        fullName: creds.admin.fullName,
+        email: creds.admin.email,
+        passwordHash: hashPassword(creds.admin.password),
+        role: creds.admin.role,
+        createdAt: '2026-09-01T08:00:00Z',
+        lastLogin: new Date().toISOString(),
+      };
+      this.state.users.unshift(admin);
+      console.log(`[Database] Initialized default Administrator account: ${creds.admin.email}`);
+    } else {
+      admin.role = 'admin';
+      // Sync password if explicitly specified via Render env var, or if hash does not match
+      if (process.env.DEFAULT_ADMIN_PASSWORD || !verifyPassword(creds.admin.password, admin.passwordHash)) {
+        admin.passwordHash = hashPassword(creds.admin.password);
+      }
+    }
+
+    // 2. Analyst account
+    let analyst = this.state.users.find((u) => u.email.toLowerCase() === creds.analyst.email.toLowerCase());
+    if (!analyst) {
+      analyst = {
+        id: creds.analyst.id,
+        fullName: creds.analyst.fullName,
+        email: creds.analyst.email,
+        passwordHash: hashPassword(creds.analyst.password),
+        role: creds.analyst.role,
+        createdAt: '2026-10-01T08:00:00Z',
+        lastLogin: new Date().toISOString(),
+      };
+      this.state.users.push(analyst);
+      console.log(`[Database] Initialized default Analyst account: ${creds.analyst.email}`);
+    } else {
+      analyst.role = 'analyst';
+      if (process.env.DEFAULT_ANALYST_PASSWORD || !verifyPassword(creds.analyst.password, analyst.passwordHash)) {
+        analyst.passwordHash = hashPassword(creds.analyst.password);
+      }
+    }
+
+    // 3. User account
+    let standard = this.state.users.find((u) => u.email.toLowerCase() === creds.user.email.toLowerCase());
+    if (!standard) {
+      standard = {
+        id: creds.user.id,
+        fullName: creds.user.fullName,
+        email: creds.user.email,
+        passwordHash: hashPassword(creds.user.password),
+        role: creds.user.role,
+        createdAt: '2026-10-15T09:30:00Z',
+        lastLogin: new Date().toISOString(),
+      };
+      this.state.users.push(standard);
+      console.log(`[Database] Initialized default User account: ${creds.user.email}`);
+    } else {
+      standard.role = 'user';
+      if (process.env.DEFAULT_USER_PASSWORD || !verifyPassword(creds.user.password, standard.passwordHash)) {
+        standard.passwordHash = hashPassword(creds.user.password);
+      }
+    }
+
+    this.save();
+  }
+
   public seedInitialData() {
     console.log('[Database] Seeding initial FinGuard dataset (Admin, Analyst, Users, 520+ transactions)...');
+    const creds = getConfiguredCredentials();
 
-    const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@FinGuard2026';
-    const defaultAnalystPassword = process.env.DEFAULT_ANALYST_PASSWORD || 'FinGuard@2026';
-    const defaultUserPassword = process.env.DEFAULT_USER_PASSWORD || 'User@FinGuard2026';
-
-    // 1. Seed Roles: Admin, Analyst, and User accounts
-    const adminUser: User = {
-      id: 'USR100',
-      fullName: 'Chief Compliance Administrator',
-      email: 'admin@finguard.bank',
-      passwordHash: hashPassword(defaultAdminPassword),
-      role: 'admin',
-      createdAt: '2026-09-01T08:00:00Z',
-      lastLogin: new Date().toISOString(),
-    };
-
-    const analystUser: User = {
-      id: 'USR101',
-      fullName: 'Senior Fraud Analyst',
-      email: 'analyst@finguard.bank',
-      passwordHash: hashPassword(defaultAnalystPassword),
-      role: 'analyst',
-      createdAt: '2026-10-01T08:00:00Z',
-      lastLogin: new Date().toISOString(),
-    };
-
-    const standardUser: User = {
-      id: 'USR102',
-      fullName: 'Auditor & Compliance Staff',
-      email: 'user@finguard.bank',
-      passwordHash: hashPassword(defaultUserPassword),
-      role: 'user',
-      createdAt: '2026-10-15T09:30:00Z',
-      lastLogin: new Date().toISOString(),
-    };
-
-    this.state.users = [adminUser, analystUser, standardUser];
+    // 1. Ensure system accounts are initialized
+    this.syncSystemAccounts();
 
     // Seed Security & System Audit Logs
     this.state.auditLogs = [
@@ -214,7 +306,7 @@ class DatabaseManager {
           alert_id: alertId,
           transaction_id: txn.transaction_id,
           investigation_status: status,
-          assigned_to: analystUser.id,
+          assigned_to: creds.analyst.id,
           notes_count: 0,
           created_at: txn.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -232,7 +324,7 @@ class DatabaseManager {
       this.state.investigationNotes.push({
         id: 'NOTE1001',
         alert_id: firstHighRiskAlert.alert_id,
-        investigator_email: analystUser.email,
+        investigator_email: creds.analyst.email,
         action_taken: 'Freeze Temporary Wire Authorization',
         notes: 'Contacted customer regarding large offshore wire transfer request. Awaiting customer identity confirmation.',
         logged_at: new Date().toISOString(),
@@ -244,7 +336,7 @@ class DatabaseManager {
       {
         upload_id: 'UPL1001',
         filename: 'production_q4_transactions.csv',
-        uploaded_by: analystUser.email,
+        uploaded_by: creds.analyst.email,
         total_rows: txns.length,
         valid_rows: txns.length,
         rejected_rows: 0,

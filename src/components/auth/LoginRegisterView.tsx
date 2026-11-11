@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   ShieldAlert,
@@ -25,10 +25,17 @@ export const LoginRegisterView: React.FC<LoginRegisterViewProps> = ({ onAuthSucc
   const [activePortal, setActivePortal] = useState<'user' | 'admin'>('user');
   const [isRegisterMode, setIsRegisterMode] = useState(false);
 
+  // Dynamic demo credentials configured on the server / Render
+  const [demoCreds, setDemoCreds] = useState({
+    admin: { email: 'admin@finguard.bank', password: 'Admin@FinGuard2026', role: 'admin', label: 'Chief Compliance Administrator' },
+    analyst: { email: 'analyst@finguard.bank', password: 'FinGuard@2026', role: 'analyst', label: 'Senior Fraud Analyst' },
+    user: { email: 'user@finguard.bank', password: 'User@FinGuard2026', role: 'user', label: 'Auditor & Compliance Staff' },
+  });
+
   // Form inputs
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('analyst@finguard.bank');
+  const [password, setPassword] = useState('FinGuard@2026');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [selectedRole, setSelectedRole] = useState<UserRole>('analyst');
   const [showPassword, setShowPassword] = useState(false);
@@ -37,36 +44,60 @@ export const LoginRegisterView: React.FC<LoginRegisterViewProps> = ({ onAuthSucc
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let mounted = true;
+    api.getDemoCredentials()
+      .then((data) => {
+        if (mounted && data) {
+          setDemoCreds(data);
+          if (activePortal === 'admin') {
+            setEmail(data.admin.email);
+            setPassword(data.admin.password);
+          } else {
+            setEmail(data.analyst.email);
+            setPassword(data.analyst.password);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch server demo credentials, using local defaults', err);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const handlePortalSwitch = (portal: 'user' | 'admin') => {
     setActivePortal(portal);
     setIsRegisterMode(false);
     setError(null);
     if (portal === 'admin') {
-      setEmail('admin@finguard.bank');
-      setPassword('Admin@FinGuard2026');
+      setEmail(demoCreds.admin.email);
+      setPassword(demoCreds.admin.password);
     } else {
-      setEmail('analyst@finguard.bank');
-      setPassword('FinGuard@2026');
+      setEmail(demoCreds.analyst.email);
+      setPassword(demoCreds.analyst.password);
     }
   };
 
-  const fillCredentials = (type: 'admin' | 'analyst' | 'user') => {
+  const fillCredentials = async (type: 'admin' | 'analyst' | 'user') => {
     setError(null);
-    if (type === 'admin') {
-      setActivePortal('admin');
-      setIsRegisterMode(false);
-      setEmail('admin@finguard.bank');
-      setPassword('Admin@FinGuard2026');
-    } else if (type === 'analyst') {
-      setActivePortal('user');
-      setIsRegisterMode(false);
-      setEmail('analyst@finguard.bank');
-      setPassword('FinGuard@2026');
-    } else {
-      setActivePortal('user');
-      setIsRegisterMode(false);
-      setEmail('user@finguard.bank');
-      setPassword('User@FinGuard2026');
+    const target = demoCreds[type];
+    const portal = type === 'admin' ? 'admin' : 'user';
+    setActivePortal(portal);
+    setIsRegisterMode(false);
+    setEmail(target.email);
+    setPassword(target.password);
+
+    // Instant 1-click evaluation sign-in
+    setLoading(true);
+    try {
+      const res = await api.login(target.email, target.password, portal);
+      onAuthSuccess(res.user);
+    } catch (err: any) {
+      setError(err.message || 'Authentication failed. Please verify credentials.');
+    } finally {
+      setLoading(false);
     }
   };
 

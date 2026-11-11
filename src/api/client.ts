@@ -64,6 +64,14 @@ export const api = {
     return request<{ user: User }>('/auth/me');
   },
 
+  async getDemoCredentials(): Promise<{
+    admin: { email: string; password: string; role: string; label: string };
+    analyst: { email: string; password: string; role: string; label: string };
+    user: { email: string; password: string; role: string; label: string };
+  }> {
+    return request('/auth/demo-credentials');
+  },
+
   logout() {
     localStorage.removeItem('finguard_token');
   },
