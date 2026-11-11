@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production build artifacts
+dist/
+build/
+coverage/
+
+# Environment configurations and secrets
+.env
+.env.local
+.env.*.local
+.env.*
+!.env.example
+
+# Service account keys and cryptographic credentials
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*service_account*.json
+*service-account*.json
+*credentials*.json
+*secret*.json
+firebase-adminsdk*.json
+gcp-key*.json
+
+# Runtime persistent database and user session state
+backend/data/*.json
+!backend/data/.gitkeep
+
+# Logs and runtime caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+.parcel-cache
+
+# Operating System and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

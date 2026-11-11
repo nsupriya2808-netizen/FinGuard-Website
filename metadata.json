@@ -1,0 +1,6 @@
+{
+  "name": "FinGuard - Financial Transaction Analysis and Fraud Detection System",
+  "description": "Enterprise-grade financial transaction analysis, automated ETL pipeline, real-time fraud detection, and dimensional data warehousing system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
